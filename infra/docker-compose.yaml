@@ -1,0 +1,39 @@
+
+
+services:
+  postgres:
+    image: postgres:11
+    container_name: stroke-db
+    environment:
+      POSTGRES_DB: ${STROKE_DB_NAME:-stroke-db}
+      POSTGRES_USER: ${STROKE_DB_USER:?STROKE_DB_USER is required}
+      POSTGRES_PASSWORD: ${STROKE_DB_PASSWORD:?STROKE_DB_PASSWORD is required}
+    ports:
+      - "${STROKE_DB_PORT:-5433}:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - stroke_network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 10s
+      retries: 5
+
+  adminer:
+    container_name: stroke_adminer
+    image: adminer
+    depends_on:
+      postgres:
+        condition: service_healthy
+    ports:
+      - "${ADMINER_PORT:-8080}:8080"
+    networks:
+      - stroke_network
+
+volumes:
+  postgres_data:
+
+networks:
+  stroke_network:
+    name: stroke_network
+    driver: bridge
