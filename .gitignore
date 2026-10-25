@@ -221,3 +221,8 @@ __marimo__/
 
 #vscode
 .vscode/
+
+# Generation progress
+*.progress.json
+*.progress.json.tmp
+logs/

@@ -1,74 +1,106 @@
-"""Initialize the offline PostgreSQL database from the SQLAlchemy models.
+"""Initialize the offline PostgreSQL database and generate synthetic data.
 
 Run from the project root:
     python src/pipe/generate_data.py
-    python src/pipe/generate_data.py --drop
-    python src/pipe/generate_data.py --database-url postgresql+psycopg2://...
+    python src/pipe/generate_data.py --config path/to/config.yaml
 """
 
 import argparse
 import logging
-import os
 import sys
+import time
+from datetime import datetime
 from pathlib import Path
-
-from dotenv import load_dotenv
-from sqlalchemy import create_engine, text
-from sqlalchemy.engine import URL
+from typing import Any
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 
+from src.db.postgres import Postgres  # noqa: E402
 from src.models.offline import Base  # noqa: E402
+from src.services.generator.postgres_generator import (  # noqa: E402
+    PostgresGenerator,
+)
 
-load_dotenv(ROOT / "infra" / ".env", override=False)
-LOGGER = logging.getLogger("init_database")
+LOGGER = logging.getLogger("generate_data")
 
 
-def get_database_url() -> str | URL:
-    """Return DATABASE_URL or build one from the STROKE_DB_* variables."""
-    if url := os.getenv("DATABASE_URL"):
-        return url
-
-    try:
-        return URL.create(
-            drivername="postgresql+psycopg2",
-            username=os.environ["STROKE_DB_USER"],
-            password=os.environ["STROKE_DB_PASSWORD"],
-            host=os.getenv("STROKE_DB_HOST", "localhost"),
-            port=int(os.getenv("STROKE_DB_PORT", "5433")),
-            database=os.getenv("STROKE_DB_NAME", "stroke-db"),
+def format_volume_report(volume: dict[str, Any]) -> str:
+    database = volume["database"]
+    tables = volume["tables"]
+    lines = [
+        f"Database  : {database['database_name']}",
+        (
+            f"Total size: {database['total_size']} "
+            f"({database['size_gb']} GB)"
+        ),
+        "",
+        f"{'Table':<32}{'Total size':>16}{'Size (GB)':>12}",
+        "-" * 60,
+    ]
+    for table in tables:
+        lines.append(
+            f"{table['table_name']:<32}"
+            f"{table['total_size']:>16}"
+            f"{table['size_gb']:>12}"
         )
-    except KeyError as exc:
-        raise SystemExit(f"Missing {exc.args[0]} or DATABASE_URL") from exc
+    return "\n".join(lines)
+
+
+def write_volume_log(db: Postgres) -> Path:
+    report = format_volume_report(db.get_data_volume())
+    logs_dir = ROOT / "logs"
+    logs_dir.mkdir(parents=True, exist_ok=True)
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    log_path = logs_dir / f"data_volume_{timestamp}.log"
+    log_path.write_text(f"{report}\n", encoding="utf-8")
+    return log_path
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Initialize the offline database.")
-    parser.add_argument("--database-url", help="SQLAlchemy database URL.")
-    parser.add_argument("--drop", action="store_true", help="Drop tables first.")
-    parser.add_argument("--echo", action="store_true", help="Echo SQL statements.")
+    parser = argparse.ArgumentParser(
+        description="Initialize the offline database and generate data."
+    )
+    parser.add_argument(
+        "--config",
+        type=Path,
+        default=ROOT / "src" / "config" / "postgres_data_generator_1GB.yaml",
+        help="Path to the generation config file.",
+    )
     args = parser.parse_args()
 
-    logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
-    engine = create_engine(
-        args.database_url or get_database_url(),
-        echo=args.echo,
-        pool_pre_ping=True,
+    logging.basicConfig(
+        level=logging.INFO, format="%(levelname)s: %(message)s"
     )
 
     try:
-        with engine.begin() as connection:
-            connection.execute(text('CREATE EXTENSION IF NOT EXISTS "uuid-ossp"'))
-            if args.drop:
-                LOGGER.warning("Dropping existing tables")
-                Base.metadata.drop_all(connection)
-            Base.metadata.create_all(connection)
-    finally:
-        engine.dispose()
+        db = Postgres()
+    except RuntimeError as exc:
+        raise SystemExit(str(exc)) from exc
 
-    tables = ", ".join(table.name for table in Base.metadata.sorted_tables)
-    LOGGER.info("Database ready: %s", tables)
+    generator = PostgresGenerator(db=db, config_path=args.config)
+    LOGGER.info("Progress file: %s", generator.progress_path)
+
+    with db:
+        db.init_db(Base.metadata)
+
+        tables = ", ".join(
+            table.name for table in Base.metadata.sorted_tables
+        )
+        LOGGER.info("Database ready: %s", tables)
+
+        started = time.perf_counter()
+        with generator:
+            counts = generator.generate_all()
+
+        LOGGER.info("Generated rows: %s", counts)
+        LOGGER.info(
+            "Finished in %.2f seconds",
+            time.perf_counter() - started,
+        )
+
+        volume_log = write_volume_log(db)
+        LOGGER.info("Data volume log: %s", volume_log)
 
 
 if __name__ == "__main__":

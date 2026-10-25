@@ -1,0 +1,293 @@
+generation:
+  demographic_count: 500000
+  start_time: "2023-01-01T00:00:00"
+  end_time: "2025-12-31T23:59:59"
+  volume:
+    value: 1
+    unit: "GB"
+  duplicated_rate: 0.02
+  batch_size: 50000
+  seed: 42
+
+tables:
+  demographic:
+    count: demographic_count
+    uuid_prefix: 1
+    primary_key: demo_id
+    duplicate: false
+    columns:
+      demo_id:
+        type: uuid
+      age:
+        type: int
+        min: 18
+        max: 90
+      gender:
+        type: category
+        values: ["male", "female", "other"]
+        weights: [0.72, 0.27, 0.01]
+        skew: true
+      marital_status:
+        type: category
+        values: ["single", "married", "divorced", "widowed"]
+        weights: [0.30, 0.50, 0.13, 0.07]
+      location:
+        type: category
+        values: ["north", "central", "south"]
+        weights: [0.50, 0.27, 0.23]
+        skew: true
+      occupation:
+        type: category
+        values:
+          - "office_worker"
+          - "farmer"
+          - "engineer"
+          - "business"
+          - "teacher"
+          - "healthcare"
+          - "other"
+        weights: [0.32, 0.18, 0.15, 0.15, 0.08, 0.06, 0.06]
+      residence_type:
+        type: category
+        values: ["urban", "rural", "suburban"]
+        weights: [0.55, 0.30, 0.15]
+        skew: true
+      income_level:
+        type: category
+        values: ["low", "middle", "high"]
+        weights: [0.28, 0.55, 0.17]
+        skew: true
+      family_history_stroke:
+        type: bool
+        probability: 0.12
+      family_history_cvd:
+        type: bool
+        probability: 0.18
+
+  ehr:
+    count: volume
+    share: 0.26
+    row_bytes: 150
+    fallback_multiplier: 4
+    uuid_prefix: 2
+    primary_key: ehr_id
+    duplicate: true
+    columns:
+      ehr_id:
+        type: uuid
+      demo_id:
+        type: patient
+        table: demographic
+      encounter_date:
+        type: datetime
+      height_cm:
+        type: float
+        min: 140
+        max: 200
+        precision: 2
+      weight_kg:
+        type: float
+        min: 40
+        max: 150
+        precision: 2
+      is_diabetes:
+        type: bool
+        probability: 0.12
+      is_heart_disease:
+        type: bool
+        probability: 0.08
+      is_kidney_disease:
+        type: bool
+        probability: 0.05
+      fasting_glucose:
+        type: float
+        min: 70
+        max: 115
+        precision: 2
+        when:
+          is_diabetes:
+            min: 126
+            max: 250
+      hba1c:
+        type: float
+        min: 4.2
+        max: 6.0
+        precision: 2
+        when:
+          is_diabetes:
+            min: 6.5
+            max: 11.0
+      total_cholesterol:
+        type: float
+        min: 120
+        max: 260
+        precision: 2
+      ldl:
+        type: float
+        min: 50
+        max: 190
+        precision: 2
+      hdl:
+        type: float
+        min: 30
+        max: 80
+        precision: 2
+
+  lifestyle:
+    count: volume
+    share: 0.08
+    row_bytes: 120
+    fallback_multiplier: 2
+    uuid_prefix: 3
+    primary_key: lifestyle_id
+    duplicate: true
+    columns:
+      lifestyle_id:
+        type: uuid
+      demo_id:
+        type: patient
+        table: demographic
+      recorded_at:
+        type: datetime
+      smoking:
+        type: category
+        values: [false, true]
+        weights: [0.78, 0.22]
+      alcohol_consumption_frequency:
+        type: int
+        min: 0
+        max: 30
+      cooking_method:
+        type: category
+        values: ["fried_stir_fried", "grilled", "boiled", "steamed"]
+        weights: [0.40, 0.20, 0.25, 0.15]
+      diet_taste_preference:
+        type: category
+        values: ["salty", "spicy", "sour", "bitter", "sweet", "moderate"]
+        weights: [0.35, 0.20, 0.10, 0.05, 0.15, 0.15]
+      diet_type:
+        type: category
+        values: ["vegetable", "meat", "seafood", "balanced"]
+        weights: [0.25, 0.35, 0.15, 0.25]
+
+  vital_signs:
+    count: volume
+    share: 0.28
+    row_bytes: 90
+    fallback_multiplier: 12
+    uuid_prefix: 4
+    primary_key: vital_id
+    duplicate: true
+    columns:
+      vital_id:
+        type: uuid
+      demo_id:
+        type: patient
+        table: demographic
+      measured_at:
+        type: datetime
+      heart_rate:
+        type: int
+        min: 55
+        max: 120
+      spo2:
+        type: float
+        min: 92
+        max: 100
+        precision: 2
+      temperature:
+        type: float
+        min: 35.5
+        max: 38.5
+        precision: 2
+
+  sleep_cycle:
+    count: volume
+    share: 0.13
+    row_bytes: 100
+    fallback_multiplier: 5
+    uuid_prefix: 5
+    primary_key: sleep_id
+    duplicate: true
+    columns:
+      sleep_id:
+        type: uuid
+      demo_id:
+        type: patient
+        table: demographic
+      sleep_start:
+        type: datetime
+      sleep_end:
+        type: offset_datetime
+        source: sleep_start
+        seconds_min: 14400
+        seconds_max: 36000
+      is_wake_sudden:
+        type: bool
+        probability: 0.15
+
+  physical_activities:
+    count: volume
+    share: 0.20
+    row_bytes: 130
+    fallback_multiplier: 6
+    uuid_prefix: 6
+    primary_key: activity_id
+    duplicate: true
+    columns:
+      activity_id:
+        type: uuid
+      demo_id:
+        type: patient
+        table: demographic
+      activity_time:
+        type: datetime
+      duration_minutes:
+        type: int
+        min: 10
+        max: 180
+      calories:
+        type: computed_float
+        source: duration_minutes
+        min_factor: 3.0
+        max_factor: 12.0
+        precision: 2
+      distance_km:
+        type: computed_float
+        source: duration_minutes
+        min_factor: 2.0
+        max_factor: 14.0
+        divisor: 60
+        precision: 3
+      activity_type:
+        type: category
+        values:
+          - "walking"
+          - "running"
+          - "cycling"
+          - "swimming"
+          - "gym"
+          - "yoga"
+          - "football"
+          - "other"
+        weights: [0.35, 0.12, 0.12, 0.08, 0.13, 0.08, 0.05, 0.07]
+
+  stroke_history:
+    count: volume
+    share: 0.05
+    row_bytes: 80
+    fallback_multiplier: 0.05
+    uuid_prefix: 7
+    primary_key: stroke_id
+    duplicate: false
+    columns:
+      stroke_id:
+        type: uuid
+      demo_id:
+        type: patient
+        table: demographic
+        mode: round_robin
+      stroke_time:
+        type: datetime
+      stroke_sequence:
+        type: sequence
